@@ -9,9 +9,12 @@ from app.audio.event_detection import detect_events
 from app.audio.loader import load_audio
 from app.audio.quality import assess_audio_quality
 from app.config import AppConfig, DEFAULT_CONFIG, VERSION
+from app.explanations import generate_explanations
 from app.speech.asr_openai import transcribe_audio_bytes
+from app.speech.keywords import extract_speech_keywords
 from app.speech.language import build_language_output
 from app.speech.translation import translate_to_english
+from app.speech.urgency import compute_speech_urgency, compute_voice_strength
 
 
 def _empty_non_speech_output() -> dict[str, Any]:
@@ -60,6 +63,14 @@ def _empty_output() -> dict[str, Any]:
         "text": "",
         "translated_text": "",
         "asr_confidence": None,
+    }
+    output["speech_features"] = {
+        "help_keyword_detected": False,
+        "fall_keyword_detected": False,
+        "cannot_breathe_keyword_detected": False,
+        "keyword_hits": [],
+        "voice_strength_score": 0.0,
+        "speech_urgency_score": 0.0,
     }
     return output
 
@@ -128,6 +139,34 @@ def analyze_audio(audio_path: str | Path, config: AppConfig = DEFAULT_CONFIG) ->
             transcript_info["detected_language"],
             config=config,
         )
+        try:
+            keyword_features = extract_speech_keywords(
+                transcript_info["text"],
+                translation_info["translated_text"],
+                config=config,
+            )
+        except Exception:
+            keyword_features = {
+                "help_keyword_detected": False,
+                "fall_keyword_detected": False,
+                "cannot_breathe_keyword_detected": False,
+                "keyword_hits": [],
+            }
+
+        try:
+            voice_strength_score = compute_voice_strength(audio)
+        except Exception:
+            voice_strength_score = 0.0
+
+        try:
+            speech_urgency_score = compute_speech_urgency(
+                keyword_features,
+                voice_strength_score,
+                detection["non_speech_events"],
+                config=config,
+            )
+        except Exception:
+            speech_urgency_score = 0.0
 
         warning_messages = [
             f"speech_warning:{warning}"
@@ -139,7 +178,7 @@ def analyze_audio(audio_path: str | Path, config: AppConfig = DEFAULT_CONFIG) ->
         if warning_messages:
             audio_meta["quality_issues"] = list(dict.fromkeys(audio_meta["quality_issues"] + warning_messages))
 
-        return {
+        result = {
             "audio_meta": audio_meta,
             "non_speech_events": detection["non_speech_events"],
             "acoustic_features": detection["acoustic_features"],
@@ -152,12 +191,27 @@ def analyze_audio(audio_path: str | Path, config: AppConfig = DEFAULT_CONFIG) ->
                 "translated_text": translation_info["translated_text"],
                 "asr_confidence": transcript_info["asr_confidence"],
             },
+            "speech_features": {
+                "help_keyword_detected": bool(keyword_features["help_keyword_detected"]),
+                "fall_keyword_detected": bool(keyword_features["fall_keyword_detected"]),
+                "cannot_breathe_keyword_detected": bool(keyword_features["cannot_breathe_keyword_detected"]),
+                "keyword_hits": list(keyword_features["keyword_hits"]),
+                "voice_strength_score": float(voice_strength_score),
+                "speech_urgency_score": float(speech_urgency_score),
+            },
             "explanations": detection["explanations"],
             "model_info": {
                 "event_model": detection["event_model"],
                 "version": VERSION,
             },
         }
+        explanation_payload = generate_explanations(
+            result,
+            config=config,
+            fallback_explanations=detection["explanations"],
+        )
+        result["explanations"] = list(explanation_payload.get("explanations", result["explanations"]))
+        return result
     except FileNotFoundError as exc:
         return _error_output(f"file_not_found:{exc}", include_speech=True)
     except ValueError as exc:

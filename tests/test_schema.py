@@ -29,6 +29,7 @@ def test_pipeline_returns_expected_schema(tmp_path: Path) -> None:
         "acoustic_features",
         "language",
         "transcript",
+        "speech_features",
         "explanations",
         "model_info",
     }
@@ -70,5 +71,13 @@ def test_pipeline_returns_expected_schema(tmp_path: Path) -> None:
         "text",
         "translated_text",
         "asr_confidence",
+    }
+    assert set(result["speech_features"].keys()) == {
+        "help_keyword_detected",
+        "fall_keyword_detected",
+        "cannot_breathe_keyword_detected",
+        "keyword_hits",
+        "voice_strength_score",
+        "speech_urgency_score",
     }
     assert set(result["model_info"].keys()) == {"event_model", "version"}
