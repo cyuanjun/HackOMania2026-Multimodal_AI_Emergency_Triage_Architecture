@@ -9,6 +9,7 @@ The pipeline supports:
 - translation to English
 - speech keyword detection (`help`, `fall`, `cannot breathe`)
 - speech urgency scoring
+- LLM-assisted operator-facing explanation generation with deterministic fallback
 
 The output is always a JSON-serializable Python `dict`, and module failures are handled gracefully without crashing the full pipeline.
 
@@ -18,6 +19,7 @@ The output is always a JSON-serializable Python `dict`, and module failures are 
 app/
   config.py
   env.py
+  explanations.py
   pipeline.py
   audio/
     loader.py
@@ -58,7 +60,7 @@ Create a `.env` file in the project root:
 OPENAI_API_KEY=your_key_here
 ```
 
-The code automatically loads `.env` for ASR and translation.
+The code automatically loads `.env` for ASR, translation, and LLM explanation generation.
 
 ## Usage
 
@@ -152,7 +154,10 @@ python demo.py sample.m4a
 - Non-speech detection is heuristic-first and demo-friendly.
 - Optional YAMNet signals are used when TensorFlow + TensorFlow Hub are available.
 - Transcript/translation uses OpenAI APIs when `OPENAI_API_KEY` is set.
-- Keyword matching is heuristic-based: mostly simple matching, with conservative regex relaxation on core emergency phrases.
+- Explanations are generated from existing structured signals (non-speech + speech + fusion hints). The LLM is not used for raw event detection.
+- If OpenAI explanation generation fails, the pipeline falls back to deterministic rule-based explanations.
+- Keyword matching uses a grouped config structure in `app/config.py` (`speech_keyword_groups`, `speech_core_regex_patterns`) for easier maintenance.
+- Matching strategy is heuristic-based: mostly simple matching, with conservative regex relaxation on core emergency phrases.
 - If ASR/translation is unavailable, the pipeline still returns a valid output with safe defaults and warning messages in `audio_meta.quality_issues`.
 
 ## Tests
