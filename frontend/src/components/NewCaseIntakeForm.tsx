@@ -1,0 +1,1023 @@
+"use client";
+
+import { Fragment, FormEvent, useEffect, useMemo, useState } from "react";
+
+import { createCaseIntake, fetchCases, fetchProfiles, setOperatorAction } from "@/lib/api";
+import {
+  CaseRecord,
+  CaseIntakePayload,
+  CustomProfileInput,
+  OperatorAction,
+  ProfileRecord
+} from "@/types";
+
+const CUSTOM_PROFILE_OPTION = "__custom__";
+
+type BoolSelect = "true" | "false";
+
+type CustomProfileFormState = {
+  unit_block: string;
+  resident_name: string;
+  age: string;
+  living_alone_flag: BoolSelect;
+  mobility_status: string;
+  mobility_status_custom: string;
+  caregiver_available: BoolSelect;
+  cardiac_risk_flag: BoolSelect;
+  fall_risk_flag: BoolSelect;
+  diabetes_flag: BoolSelect;
+  dementia_risk_flag: BoolSelect;
+  recent_discharge_flag: BoolSelect;
+  calls_last_7d: string;
+  calls_last_30d: string;
+  false_alarm_rate: string;
+  time_since_last_call: string;
+  average_call_duration: string;
+};
+
+const INITIAL_CUSTOM_PROFILE: CustomProfileFormState = {
+  unit_block: "",
+  resident_name: "",
+  age: "70",
+  living_alone_flag: "false",
+  mobility_status: "assisted",
+  mobility_status_custom: "",
+  caregiver_available: "true",
+  cardiac_risk_flag: "false",
+  fall_risk_flag: "false",
+  diabetes_flag: "false",
+  dementia_risk_flag: "false",
+  recent_discharge_flag: "false",
+  calls_last_7d: "0",
+  calls_last_30d: "0",
+  false_alarm_rate: "0",
+  time_since_last_call: "0",
+  average_call_duration: "0",
+};
+
+function toBool(value: BoolSelect): boolean {
+  return value === "true";
+}
+
+function parseNonNegativeInt(raw: string): number | null {
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    return null;
+  }
+  return value;
+}
+
+function parseNonNegativeFloat(raw: string): number | null {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    return null;
+  }
+  return value;
+}
+
+function displayValue(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+
+  if (typeof value === "string" && value.trim() === "") {
+    return "-";
+  }
+
+  return String(value);
+}
+
+function displayLivingAlone(value: boolean | null | undefined): string {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+
+  return value ? "Yes" : "No";
+}
+
+function formatConfidenceValue(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return "-";
+  }
+  const clamped = Math.min(1, Math.max(0, value));
+  return clamped.toFixed(2);
+}
+
+function actionLabel(action: OperatorAction): string {
+  if (action === "ambulance_dispatch") {
+    return "Dispatch Ambulance";
+  }
+  if (action === "operator_callback") {
+    return "Operator Callback";
+  }
+  return "Community Response";
+}
+
+function actionConfirmationText(action: OperatorAction): string {
+  if (action === "ambulance_dispatch") {
+    return "Confirm operator action: Dispatch Ambulance?";
+  }
+  if (action === "operator_callback") {
+    return "Confirm operator action: Operator Callback?";
+  }
+  return "Confirm operator action: Community Response?";
+}
+
+function renderCaseTableColGroup() {
+  return (
+    <colgroup>
+      <col style={{ width: "190px" }} />
+      <col style={{ width: "180px" }} />
+      <col style={{ width: "80px" }} />
+      <col style={{ width: "110px" }} />
+      <col style={{ width: "90px" }} />
+      <col style={{ width: "130px" }} />
+      <col style={{ width: "120px" }} />
+      <col style={{ width: "130px" }} />
+      <col style={{ width: "190px" }} />
+    </colgroup>
+  );
+}
+
+function actionButtonClass(action: OperatorAction): string {
+  if (action === "ambulance_dispatch") {
+    return "action-ambulance";
+  }
+  if (action === "operator_callback") {
+    return "action-callback";
+  }
+  return "action-community";
+}
+
+function toFeatureLabel(key: string, sourceModule: string): string {
+  const feature = key.replace(/_/g, " ");
+  const source = sourceModule.replace(/_/g, " ");
+  return `${feature} (${source})`;
+}
+
+type FeatureBreakdownRow = {
+  feature: string;
+  confidence: string;
+  reason: string;
+};
+
+export function NewCaseIntakeForm() {
+  const [profiles, setProfiles] = useState<ProfileRecord[]>([]);
+  const [cases, setCases] = useState<CaseRecord[]>([]);
+  const [profileSelection, setProfileSelection] = useState("");
+  const [selectedAudioFile, setSelectedAudioFile] = useState<File | null>(null);
+  const [customProfile, setCustomProfile] =
+    useState<CustomProfileFormState>(INITIAL_CUSTOM_PROFILE);
+  const [submitting, setSubmitting] = useState(false);
+  const [actingCaseId, setActingCaseId] = useState<string | null>(null);
+  const [expandedCaseId, setExpandedCaseId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [createdCase, setCreatedCase] = useState<CaseRecord | null>(null);
+  const [fileInputKey, setFileInputKey] = useState(0);
+
+  useEffect(() => {
+    fetchProfiles()
+      .then((rows) => {
+        setProfiles(rows);
+      })
+      .catch((err: Error) => {
+        setError(err.message);
+      });
+
+    fetchCases()
+      .then((rows) => {
+        setCases(rows);
+      })
+      .catch((err: Error) => {
+        setError(err.message);
+      });
+  }, []);
+
+  const isCustomProfile = profileSelection === CUSTOM_PROFILE_OPTION;
+
+  const selectedProfile = useMemo(
+    () => profiles.find((item) => item.profile_id === profileSelection),
+    [profiles, profileSelection]
+  );
+
+  const profilesById = useMemo(
+    () => new Map(profiles.map((profile) => [profile.profile_id, profile])),
+    [profiles]
+  );
+
+  const aiAssessedCases = useMemo(
+    () => cases.filter((item) => item.status === "processed"),
+    [cases]
+  );
+
+  const pendingAIAssessmentCases = useMemo(
+    () => cases.filter((item) => item.status === "unprocessed"),
+    [cases]
+  );
+
+  const operatorProcessedCases = useMemo(
+    () => cases.filter((item) => item.status === "operator_processed"),
+    [cases]
+  );
+
+  function handleCustomFieldChange<K extends keyof CustomProfileFormState>(
+    key: K,
+    value: CustomProfileFormState[K]
+  ) {
+    setCustomProfile((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  }
+
+  function buildCustomProfilePayload(): CustomProfileInput | null {
+    const residentName = customProfile.resident_name.trim();
+    const age = parseNonNegativeInt(customProfile.age);
+    const callsLast7d = parseNonNegativeInt(customProfile.calls_last_7d);
+    const callsLast30d = parseNonNegativeInt(customProfile.calls_last_30d);
+    const falseAlarmRate = parseNonNegativeFloat(customProfile.false_alarm_rate);
+    const timeSinceLastCall = parseNonNegativeInt(customProfile.time_since_last_call);
+    const averageCallDuration = parseNonNegativeFloat(customProfile.average_call_duration);
+    const mobilityStatus =
+      customProfile.mobility_status === "other"
+        ? customProfile.mobility_status_custom.trim()
+        : customProfile.mobility_status;
+
+    if (!residentName) {
+      setError("Enter resident name for custom profile.");
+      return null;
+    }
+    if (!mobilityStatus) {
+      setError("Enter a mobility status for custom profile.");
+      return null;
+    }
+    if (age === null || age > 130) {
+      setError("Custom age must be an integer from 0 to 130.");
+      return null;
+    }
+    if (callsLast7d === null || callsLast30d === null || timeSinceLastCall === null) {
+      setError("Call count and time fields must be non-negative integers.");
+      return null;
+    }
+    if (
+      falseAlarmRate === null ||
+      falseAlarmRate > 1 ||
+      averageCallDuration === null
+    ) {
+      setError("False alarm rate must be 0 to 1, and average duration must be non-negative.");
+      return null;
+    }
+
+    return {
+      unit_patient_information: {
+        unit_block: customProfile.unit_block.trim() || undefined,
+        resident_name: residentName,
+        age,
+        living_alone_flag: toBool(customProfile.living_alone_flag),
+        mobility_status: mobilityStatus,
+        caregiver_available: toBool(customProfile.caregiver_available),
+      },
+      medical_history: {
+        cardiac_risk_flag: toBool(customProfile.cardiac_risk_flag),
+        fall_risk_flag: toBool(customProfile.fall_risk_flag),
+        diabetes_flag: toBool(customProfile.diabetes_flag),
+        dementia_risk_flag: toBool(customProfile.dementia_risk_flag),
+        recent_discharge_flag: toBool(customProfile.recent_discharge_flag),
+      },
+      historical_call_history: {
+        calls_last_7d: callsLast7d,
+        calls_last_30d: callsLast30d,
+        false_alarm_rate: falseAlarmRate,
+        time_since_last_call: timeSinceLastCall,
+        average_call_duration: averageCallDuration,
+      },
+    };
+  }
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    setCreatedCase(null);
+
+    if (!profileSelection) {
+      setError("Select a profile or choose custom profile.");
+      setSubmitting(false);
+      return;
+    }
+
+    if (!selectedAudioFile) {
+      setError("Choose an audio file before creating the case.");
+      setSubmitting(false);
+      return;
+    }
+
+    const payload: CaseIntakePayload = {
+      intake_artifacts: [
+        {
+          name: selectedAudioFile.name,
+          file_type: selectedAudioFile.type || "audio/unknown",
+        },
+      ],
+    };
+
+    if (isCustomProfile) {
+      const customPayload = buildCustomProfilePayload();
+      if (!customPayload) {
+        setSubmitting(false);
+        return;
+      }
+      payload.custom_profile = customPayload;
+    } else {
+      payload.profile_id = profileSelection;
+    }
+
+    try {
+      const created = await createCaseIntake(payload);
+      setCreatedCase(created);
+
+      const [latestCases, latestProfiles] = await Promise.all([fetchCases(), fetchProfiles()]);
+      setCases(latestCases);
+      setProfiles(latestProfiles);
+
+      setSelectedAudioFile(null);
+      setFileInputKey((value) => value + 1);
+      if (isCustomProfile) {
+        setProfileSelection(created.profile_id);
+        setCustomProfile(INITIAL_CUSTOM_PROFILE);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to create case.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function onSelectOperatorAction(caseId: string, action: OperatorAction) {
+    setError(null);
+    setActingCaseId(caseId);
+
+    try {
+      const updatedCase = await setOperatorAction(caseId, action);
+      setCases((current) =>
+        current.map((item) => (item.case_id === updatedCase.case_id ? updatedCase : item))
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to set operator action.");
+    } finally {
+      setActingCaseId(null);
+    }
+  }
+
+  function toggleCaseExpansion(caseId: string) {
+    setExpandedCaseId((current) => (current === caseId ? null : caseId));
+  }
+
+  function buildFeatureBreakdownRows(item: CaseRecord): FeatureBreakdownRow[] {
+    const factors = item.score_result?.factors ?? [];
+
+    if (factors.length > 0) {
+      const ranked = [...factors].sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight));
+      const maxAbsWeight = Math.max(...ranked.map((factor) => Math.abs(factor.weight)));
+
+      return ranked.map((factor) => ({
+        feature: toFeatureLabel(factor.key, factor.source_module),
+        confidence:
+          maxAbsWeight > 0
+            ? formatConfidenceValue(Math.abs(factor.weight) / maxAbsWeight)
+            : "-",
+        reason: `${displayValue(factor.evidence)} (${
+          factor.direction === "risk_up" ? "increases severity" : "reduces severity"
+        })`,
+      }));
+    }
+
+    const fallbackRows: FeatureBreakdownRow[] = [];
+    const topReasons = item.top_contributing_reasons ?? [];
+    topReasons.forEach((reason, index) => {
+      fallbackRows.push({
+        feature: `Top factor ${index + 1}`,
+        confidence: "-",
+        reason: displayValue(reason),
+      });
+    });
+
+    const speechCues = item.audio_module?.speech_cues;
+    if (speechCues && speechCues.length > 0) {
+      fallbackRows.push({
+        feature: "Audio speech cues",
+        confidence: formatConfidenceValue(item.audio_module?.speech_distress_score),
+        reason: speechCues.join(", "),
+      });
+    }
+
+    const nonSpeechCues = item.audio_module?.non_speech_cues;
+    if (nonSpeechCues && nonSpeechCues.length > 0) {
+      fallbackRows.push({
+        feature: "Audio non-speech cues",
+        confidence: formatConfidenceValue(item.audio_module?.non_speech_distress_score),
+        reason: nonSpeechCues.join(", "),
+      });
+    }
+
+    if (item.audio_module?.estimated_emergency_type) {
+      fallbackRows.push({
+        feature: "Estimated emergency type",
+        confidence: "-",
+        reason: item.audio_module.estimated_emergency_type,
+      });
+    }
+
+    if (fallbackRows.length === 0) {
+      fallbackRows.push({
+        feature: "Feature assessment",
+        confidence: "-",
+        reason: "No model feature breakdown available yet.",
+      });
+    }
+
+    return fallbackRows;
+  }
+
+  function renderFeatureBreakdown(item: CaseRecord) {
+    const rows = buildFeatureBreakdownRows(item);
+
+    return (
+      <div className="feature-breakdown-wrap">
+        <table className="feature-breakdown-table">
+          <thead>
+            <tr>
+              <th>Feature name</th>
+              <th>Feature confidence (0-1)</th>
+              <th>Reasons why</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={`${item.case_id}-feature-${index}`}>
+                <td>{row.feature}</td>
+                <td>{row.confidence}</td>
+                <td>{row.reason}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  function renderOperatorActionButtons(caseId: string) {
+    const actions: OperatorAction[] = [
+      "operator_callback",
+      "community_response",
+      "ambulance_dispatch"
+    ];
+
+    return (
+      <div className="operator-actions">
+        {actions.map((action) => (
+          <button
+            key={action}
+            type="button"
+            className={`secondary-btn ${actionButtonClass(action)}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              const confirmed = window.confirm(actionConfirmationText(action));
+              if (!confirmed) {
+                return;
+              }
+              onSelectOperatorAction(caseId, action);
+            }}
+            disabled={actingCaseId === caseId}
+          >
+            {actingCaseId === caseId ? "Submitting..." : actionLabel(action)}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="dashboard-layout">
+      <aside className="panel left-panel">
+        <h2 className="section-title">Inputs</h2>
+
+        <form onSubmit={onSubmit} className="intake-form">
+          <label className="field">
+            Profile
+            <select
+              value={profileSelection}
+              onChange={(event) => setProfileSelection(event.target.value)}
+              required
+            >
+              <option value="" disabled>
+                Select a profile
+              </option>
+              <option value={CUSTOM_PROFILE_OPTION}>Custom profile</option>
+              {profiles.map((profile) => (
+                <option value={profile.profile_id} key={profile.profile_id}>
+                  {profile.profile_id} - {displayValue(profile.unit_patient_information.resident_name)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {isCustomProfile ? (
+            <div className="profile-card">
+              <h3>Custom Profile</h3>
+              <div className="profile-group">
+                <strong>1. Unit / Patient information</strong>
+                <div>Profile ID: generated automatically when case is created.</div>
+                <label className="field">
+                  Unit / Block
+                  <input
+                    value={customProfile.unit_block}
+                    onChange={(event) =>
+                      handleCustomFieldChange("unit_block", event.target.value)
+                    }
+                    placeholder="BLK-120A-08-122"
+                  />
+                </label>
+                <label className="field">
+                  Resident name
+                  <input
+                    value={customProfile.resident_name}
+                    onChange={(event) =>
+                      handleCustomFieldChange("resident_name", event.target.value)
+                    }
+                    placeholder="Resident name"
+                    required={isCustomProfile}
+                  />
+                </label>
+                <label className="field">
+                  Age
+                  <input
+                    type="number"
+                    min={0}
+                    max={130}
+                    value={customProfile.age}
+                    onChange={(event) => handleCustomFieldChange("age", event.target.value)}
+                    required={isCustomProfile}
+                  />
+                </label>
+                <label className="field">
+                  Living alone flag
+                  <select
+                    value={customProfile.living_alone_flag}
+                    onChange={(event) =>
+                      handleCustomFieldChange("living_alone_flag", event.target.value as BoolSelect)
+                    }
+                  >
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                </label>
+                <label className="field">
+                  Mobility status
+                  <select
+                    value={customProfile.mobility_status}
+                    onChange={(event) =>
+                      handleCustomFieldChange("mobility_status", event.target.value)
+                    }
+                  >
+                    <option value="independent">independent</option>
+                    <option value="assisted">assisted</option>
+                    <option value="limited">limited</option>
+                    <option value="wheelchair">wheelchair</option>
+                    <option value="bedridden">bedridden</option>
+                    <option value="other">other</option>
+                  </select>
+                </label>
+                {customProfile.mobility_status === "other" ? (
+                  <label className="field">
+                    Mobility status (custom)
+                    <input
+                      value={customProfile.mobility_status_custom}
+                      onChange={(event) =>
+                        handleCustomFieldChange("mobility_status_custom", event.target.value)
+                      }
+                      required={isCustomProfile && customProfile.mobility_status === "other"}
+                    />
+                  </label>
+                ) : null}
+                <label className="field">
+                  Caregiver available
+                  <select
+                    value={customProfile.caregiver_available}
+                    onChange={(event) =>
+                      handleCustomFieldChange("caregiver_available", event.target.value as BoolSelect)
+                    }
+                  >
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="profile-group">
+                <strong>2. Medical history</strong>
+                <label className="field">
+                  Cardiac risk flag
+                  <select
+                    value={customProfile.cardiac_risk_flag}
+                    onChange={(event) =>
+                      handleCustomFieldChange("cardiac_risk_flag", event.target.value as BoolSelect)
+                    }
+                  >
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                </label>
+                <label className="field">
+                  Fall risk flag
+                  <select
+                    value={customProfile.fall_risk_flag}
+                    onChange={(event) =>
+                      handleCustomFieldChange("fall_risk_flag", event.target.value as BoolSelect)
+                    }
+                  >
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                </label>
+                <label className="field">
+                  Diabetes flag
+                  <select
+                    value={customProfile.diabetes_flag}
+                    onChange={(event) =>
+                      handleCustomFieldChange("diabetes_flag", event.target.value as BoolSelect)
+                    }
+                  >
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                </label>
+                <label className="field">
+                  Dementia risk flag
+                  <select
+                    value={customProfile.dementia_risk_flag}
+                    onChange={(event) =>
+                      handleCustomFieldChange("dementia_risk_flag", event.target.value as BoolSelect)
+                    }
+                  >
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                </label>
+                <label className="field">
+                  Recent discharge flag
+                  <select
+                    value={customProfile.recent_discharge_flag}
+                    onChange={(event) =>
+                      handleCustomFieldChange(
+                        "recent_discharge_flag",
+                        event.target.value as BoolSelect
+                      )
+                    }
+                  >
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="profile-group">
+                <strong>3. Historical call history</strong>
+                <label className="field">
+                  Calls last 7d
+                  <input
+                    type="number"
+                    min={0}
+                    value={customProfile.calls_last_7d}
+                    onChange={(event) =>
+                      handleCustomFieldChange("calls_last_7d", event.target.value)
+                    }
+                    required={isCustomProfile}
+                  />
+                </label>
+                <label className="field">
+                  Calls last 30d
+                  <input
+                    type="number"
+                    min={0}
+                    value={customProfile.calls_last_30d}
+                    onChange={(event) =>
+                      handleCustomFieldChange("calls_last_30d", event.target.value)
+                    }
+                    required={isCustomProfile}
+                  />
+                </label>
+                <label className="field">
+                  False alarm rate
+                  <input
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={customProfile.false_alarm_rate}
+                    onChange={(event) =>
+                      handleCustomFieldChange("false_alarm_rate", event.target.value)
+                    }
+                    required={isCustomProfile}
+                  />
+                </label>
+                <label className="field">
+                  Time since last call
+                  <input
+                    type="number"
+                    min={0}
+                    value={customProfile.time_since_last_call}
+                    onChange={(event) =>
+                      handleCustomFieldChange("time_since_last_call", event.target.value)
+                    }
+                    required={isCustomProfile}
+                  />
+                </label>
+                <label className="field">
+                  Average call duration
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    value={customProfile.average_call_duration}
+                    onChange={(event) =>
+                      handleCustomFieldChange("average_call_duration", event.target.value)
+                    }
+                    required={isCustomProfile}
+                  />
+                </label>
+              </div>
+            </div>
+          ) : null}
+
+          <label className="field">
+            Audio file
+            <input
+              key={fileInputKey}
+              type="file"
+              accept="audio/*"
+              onChange={(event) => setSelectedAudioFile(event.target.files?.[0] ?? null)}
+              required
+            />
+          </label>
+
+          <button type="submit" className="primary-btn" disabled={submitting}>
+            {submitting ? "Creating Case..." : "Create Intake Case"}
+          </button>
+        </form>
+
+        {error ? (
+          <p className="status error">
+            <strong>Error:</strong> {error}
+          </p>
+        ) : null}
+
+        {createdCase ? (
+          <p className="status success">
+            Case created: <strong>{createdCase.case_id}</strong> ({createdCase.status})
+          </p>
+        ) : null}
+
+        {selectedProfile ? (
+          <div className="profile-card">
+            <h3>Selected Profile</h3>
+            <div className="profile-group">
+              <strong>1. Unit / Patient information</strong>
+              <div>Unit / Block: {displayValue(selectedProfile.unit_patient_information.unit_block)}</div>
+              <div>Resident name: {displayValue(selectedProfile.unit_patient_information.resident_name)}</div>
+              <div>Age: {selectedProfile.unit_patient_information.age}</div>
+              <div>Living alone flag: {String(selectedProfile.unit_patient_information.living_alone_flag)}</div>
+              <div>Mobility status: {selectedProfile.unit_patient_information.mobility_status}</div>
+              <div>Caregiver available: {String(selectedProfile.unit_patient_information.caregiver_available)}</div>
+            </div>
+            <div className="profile-group">
+              <strong>2. Medical history</strong>
+              <div>Cardiac risk flag: {String(selectedProfile.medical_history.cardiac_risk_flag)}</div>
+              <div>Fall risk flag: {String(selectedProfile.medical_history.fall_risk_flag)}</div>
+              <div>Diabetes flag: {String(selectedProfile.medical_history.diabetes_flag)}</div>
+              <div>Dementia risk flag: {String(selectedProfile.medical_history.dementia_risk_flag)}</div>
+              <div>Recent discharge flag: {String(selectedProfile.medical_history.recent_discharge_flag)}</div>
+            </div>
+            <div className="profile-group">
+              <strong>3. Historical call history</strong>
+              <div>Calls last 7d: {selectedProfile.historical_call_history.calls_last_7d}</div>
+              <div>Calls last 30d: {selectedProfile.historical_call_history.calls_last_30d}</div>
+              <div>False alarm rate: {selectedProfile.historical_call_history.false_alarm_rate}</div>
+              <div>Time since last call: {selectedProfile.historical_call_history.time_since_last_call}</div>
+              <div>Average call duration: {selectedProfile.historical_call_history.average_call_duration}</div>
+            </div>
+          </div>
+        ) : null}
+      </aside>
+
+      <section className="right-panel">
+        <div className="panel hero-panel">
+          <h1 className="hero-title">GovTech PAB AI Triage Prototype</h1>
+          <p className="hero-subtle">
+            Modular emergency triage intake with contextual profile and incident queue.
+          </p>
+        </div>
+
+        <div className="panel cases-panel">
+          <h2 className="section-title">AI-Assessed Cases</h2>
+          <div className="table-wrap">
+            <table className="cases-table">
+              {renderCaseTableColGroup()}
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Resident name</th>
+                  <th>Age</th>
+                  <th>Living alone?</th>
+                  <th>Fall risk?</th>
+                  <th>Emergency type</th>
+                  <th>Distress level</th>
+                  <th>Confidence (0-1)</th>
+                  <th>Recommended action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {aiAssessedCases.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="empty-row">
+                      No AI-assessed cases.
+                    </td>
+                  </tr>
+                ) : (
+                  aiAssessedCases.map((item) => {
+                    const profile = profilesById.get(item.profile_id);
+                    const unitInfo = profile?.unit_patient_information;
+                    const isExpanded = expandedCaseId === item.case_id;
+                    return (
+                      <Fragment key={item.case_id}>
+                        <tr
+                          className={`case-row ${isExpanded ? "case-row-expanded" : ""}`}
+                          onClick={() => toggleCaseExpansion(item.case_id)}
+                        >
+                          <td>{new Date(item.created_at).toLocaleString()}</td>
+                          <td>{displayValue(unitInfo?.resident_name)}</td>
+                          <td>{displayValue(unitInfo?.age)}</td>
+                          <td>{displayLivingAlone(unitInfo?.living_alone_flag)}</td>
+                          <td>{displayLivingAlone(profile?.medical_history.fall_risk_flag)}</td>
+                          <td>{displayValue(item.emergency_type)}</td>
+                          <td>{displayValue(item.distress_level)}</td>
+                          <td>{displayValue(item.confidence)}</td>
+                          <td>{displayValue(item.recommended_action)}</td>
+                        </tr>
+                        {isExpanded ? (
+                          <tr className="expanded-row">
+                            <td colSpan={9}>
+                              <div className="expanded-grid">
+                                {renderFeatureBreakdown(item)}
+                                <div className="operator-action-section">
+                                  {renderOperatorActionButtons(item.case_id)}
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <h2 className="section-title table-subtitle">Pending AI-Assessment</h2>
+          <div className="table-wrap">
+            <table className="cases-table">
+              {renderCaseTableColGroup()}
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Resident name</th>
+                  <th>Age</th>
+                  <th>Living alone?</th>
+                  <th>Fall risk?</th>
+                  <th>Emergency type</th>
+                  <th>Distress level</th>
+                  <th>Confidence (0-1)</th>
+                  <th>Recommended action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingAIAssessmentCases.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="empty-row">
+                      No pending AI-assessment cases.
+                    </td>
+                  </tr>
+                ) : (
+                  pendingAIAssessmentCases.map((item) => {
+                    const profile = profilesById.get(item.profile_id);
+                    const unitInfo = profile?.unit_patient_information;
+                    const isExpanded = expandedCaseId === item.case_id;
+
+                    return (
+                      <Fragment key={item.case_id}>
+                        <tr
+                          className={`case-row ${isExpanded ? "case-row-expanded" : ""}`}
+                          onClick={() => toggleCaseExpansion(item.case_id)}
+                        >
+                          <td>{new Date(item.created_at).toLocaleString()}</td>
+                          <td>{displayValue(unitInfo?.resident_name)}</td>
+                          <td>{displayValue(unitInfo?.age)}</td>
+                          <td>{displayLivingAlone(unitInfo?.living_alone_flag)}</td>
+                          <td>{displayLivingAlone(profile?.medical_history.fall_risk_flag)}</td>
+                          <td>{displayValue(item.emergency_type)}</td>
+                          <td>{displayValue(item.distress_level)}</td>
+                          <td>{displayValue(item.confidence)}</td>
+                          <td>{displayValue(item.recommended_action)}</td>
+                        </tr>
+                        {isExpanded ? (
+                          <tr className="expanded-row">
+                            <td colSpan={9}>
+                              <div className="expanded-grid">
+                                {renderFeatureBreakdown(item)}
+                                <div className="operator-action-section">
+                                  {renderOperatorActionButtons(item.case_id)}
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <h2 className="section-title table-subtitle">Operator Processed</h2>
+          <div className="table-wrap">
+            <table className="cases-table">
+              {renderCaseTableColGroup()}
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Resident name</th>
+                  <th>Age</th>
+                  <th>Living alone?</th>
+                  <th>Fall risk?</th>
+                  <th>Emergency type</th>
+                  <th>Distress level</th>
+                  <th>Confidence (0-1)</th>
+                  <th>Chosen action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {operatorProcessedCases.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="empty-row">
+                      No operator processed cases.
+                    </td>
+                  </tr>
+                ) : (
+                  operatorProcessedCases.map((item) => {
+                    const profile = profilesById.get(item.profile_id);
+                    const unitInfo = profile?.unit_patient_information;
+                    const isExpanded = expandedCaseId === item.case_id;
+
+                    return (
+                      <Fragment key={item.case_id}>
+                        <tr
+                          className={`case-row ${isExpanded ? "case-row-expanded" : ""}`}
+                          onClick={() => toggleCaseExpansion(item.case_id)}
+                        >
+                          <td>{new Date(item.created_at).toLocaleString()}</td>
+                          <td>{displayValue(unitInfo?.resident_name)}</td>
+                          <td>{displayValue(unitInfo?.age)}</td>
+                          <td>{displayLivingAlone(unitInfo?.living_alone_flag)}</td>
+                          <td>{displayLivingAlone(profile?.medical_history.fall_risk_flag)}</td>
+                          <td>{displayValue(item.emergency_type)}</td>
+                          <td>{displayValue(item.distress_level)}</td>
+                          <td>{displayValue(item.confidence)}</td>
+                          <td>{displayValue(item.operator_action)}</td>
+                        </tr>
+                        {isExpanded ? (
+                          <tr className="expanded-row">
+                            <td colSpan={9}>
+                              <div className="expanded-grid">
+                                {renderFeatureBreakdown(item)}
+                                <div className="operator-action-section">
+                                  <strong>Chosen Action</strong>
+                                  <div>{displayValue(item.operator_action)}</div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}

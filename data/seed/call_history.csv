@@ -1,0 +1,4 @@
+profile_id,calls_last_7d,calls_last_30d,false_alarm_rate,time_since_last_call,average_call_duration
+profile-001,2,6,0.17,18,4.5
+profile-002,1,3,0.05,52,3.2
+profile-003,4,11,0.36,5,6.8
