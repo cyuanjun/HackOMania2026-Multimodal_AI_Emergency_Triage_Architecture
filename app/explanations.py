@@ -91,6 +91,59 @@ def _build_explanation_context(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _non_speech_priority_line(context: dict[str, Any]) -> str:
+    non_speech = context["non_speech_events"]
+    candidates: list[tuple[float, str]] = [
+        (
+            _safe_float(non_speech.get("impact_confidence", 0.0)),
+            "Acoustic evidence suggests a possible impact-like event.",
+        ),
+        (
+            _safe_float(non_speech.get("fall_sound_confidence", 0.0)),
+            "Acoustic evidence may indicate a fall-like pattern.",
+        ),
+        (
+            _safe_float(non_speech.get("shouting_confidence", 0.0)),
+            "Acoustic evidence weakly supports shouting-like distress.",
+        ),
+        (
+            _safe_float(non_speech.get("crying_confidence", 0.0)),
+            "Acoustic evidence suggests possible crying-like distress.",
+        ),
+        (
+            _safe_float(non_speech.get("breathing_irregularity_confidence", 0.0)),
+            "Acoustic evidence may indicate irregular breathing-like sounds.",
+        ),
+    ]
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
+
+
+def _enforce_priority_coverage(explanations: list[str], context: dict[str, Any], max_items: int) -> list[str]:
+    """Ensure strong non-speech/fusion evidence is reflected in final explanations."""
+
+    normalized = " ".join(explanations).lower()
+    fusion = context["fusion_hints"]
+    non_speech_strength = _safe_float(fusion.get("non_speech_strength", 0.0))
+    speech_strength = _safe_float(fusion.get("speech_strength", 0.0))
+
+    needs_non_speech = non_speech_strength >= 0.55
+    needs_fusion = bool(fusion.get("supports_fusion", False))
+
+    has_non_speech = any(token in normalized for token in ("acoustic", "impact", "fall", "shouting", "crying", "breathing-like"))
+    has_fusion = any(token in normalized for token in ("both speech and non-speech", "fusion", "speech evidence appears stronger", "acoustic non-speech evidence appears stronger"))
+
+    final = list(explanations)
+    if needs_non_speech and not has_non_speech:
+        final.append(_non_speech_priority_line(context))
+    if needs_fusion and not has_fusion:
+        final.append("Both speech and non-speech evidence suggest a possibly urgent situation.")
+    elif speech_strength >= 0.6 and non_speech_strength >= 0.35 and not has_fusion:
+        final.append("Speech evidence appears stronger than non-speech acoustic evidence in this clip.")
+
+    return list(dict.fromkeys(final))[: max(3, min(max_items, 5))]
+
+
 def _fallback_explanations(
     context: dict[str, Any],
     fallback_explanations: list[str],
@@ -132,7 +185,7 @@ def _fallback_explanations(
     if not unique:
         unique = ["No strong distress evidence was detected; weak signals may still warrant monitoring."]
 
-    explanations = unique[: max(3, min(max_items, 5))]
+    explanations = _enforce_priority_coverage(unique, context, max_items)
     summary = explanations[0]
     return {"explanations": explanations, "summary": summary}
 
@@ -197,7 +250,7 @@ def _call_llm_for_explanations(context: dict[str, Any], config: AppConfig) -> di
         explanations = [str(item).strip() for item in raw_explanations if str(item).strip()]
         if not explanations:
             return None
-        explanations = explanations[: max(3, min(config.explanation_limit, 5))]
+        explanations = _enforce_priority_coverage(explanations, context, config.explanation_limit)
         summary = str(payload.get("summary", "")).strip()
         return {"explanations": explanations, "summary": summary}
     except Exception:
@@ -216,7 +269,9 @@ def generate_explanations(
 
     llm_payload = _call_llm_for_explanations(context, config)
     if llm_payload is not None:
+        llm_payload["source"] = "llm"
         return llm_payload
 
-    return _fallback_explanations(context, fallback_list, config.explanation_limit)
-
+    fallback = _fallback_explanations(context, fallback_list, config.explanation_limit)
+    fallback["source"] = "fallback"
+    return fallback

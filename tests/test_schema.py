@@ -80,4 +80,4 @@ def test_pipeline_returns_expected_schema(tmp_path: Path) -> None:
         "voice_strength_score",
         "speech_urgency_score",
     }
-    assert set(result["model_info"].keys()) == {"event_model", "version"}
+    assert set(result["model_info"].keys()) == {"event_model", "explanations_source", "version"}

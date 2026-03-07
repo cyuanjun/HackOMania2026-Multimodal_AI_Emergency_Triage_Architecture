@@ -51,6 +51,7 @@ def _empty_non_speech_output() -> dict[str, Any]:
         "explanations": [],
         "model_info": {
             "event_model": "heuristic_refinement_v2",
+            "explanations_source": "fallback",
             "version": VERSION,
         },
     }
@@ -103,6 +104,7 @@ def analyze_non_speech(audio_path: str | Path, config: AppConfig = DEFAULT_CONFI
             "explanations": detection["explanations"],
             "model_info": {
                 "event_model": detection["event_model"],
+                "explanations_source": "fallback",
                 "version": VERSION,
             },
         }
@@ -202,6 +204,7 @@ def analyze_audio(audio_path: str | Path, config: AppConfig = DEFAULT_CONFIG) ->
             "explanations": detection["explanations"],
             "model_info": {
                 "event_model": detection["event_model"],
+                "explanations_source": "fallback",
                 "version": VERSION,
             },
         }
@@ -211,6 +214,7 @@ def analyze_audio(audio_path: str | Path, config: AppConfig = DEFAULT_CONFIG) ->
             fallback_explanations=detection["explanations"],
         )
         result["explanations"] = list(explanation_payload.get("explanations", result["explanations"]))
+        result["model_info"]["explanations_source"] = str(explanation_payload.get("source", "fallback"))
         return result
     except FileNotFoundError as exc:
         return _error_output(f"file_not_found:{exc}", include_speech=True)
