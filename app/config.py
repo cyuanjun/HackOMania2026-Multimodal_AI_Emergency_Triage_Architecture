@@ -1,4 +1,4 @@
-"""Shared configuration for the non-speech audio pipeline."""
+"""Shared configuration for the audio pipeline."""
 
 from __future__ import annotations
 
@@ -20,6 +20,8 @@ class AppConfig:
     peak_distance_sec: float = 0.18
     explanation_limit: int = 4
     use_optional_yamnet: bool = True
+    openai_whisper_model: str = "whisper-1"
+    openai_translation_model: str = "gpt-4o-mini"
     yamnet_bucket_top_k: int = 3
     crying_detect_threshold: float = 0.5
     shouting_detect_threshold: float = 0.5

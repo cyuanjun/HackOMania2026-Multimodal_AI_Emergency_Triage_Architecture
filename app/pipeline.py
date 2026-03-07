@@ -1,4 +1,4 @@
-"""End-to-end non-speech audio analysis pipeline."""
+"""End-to-end audio analysis pipeline."""
 
 from __future__ import annotations
 
@@ -9,9 +9,12 @@ from app.audio.event_detection import detect_events
 from app.audio.loader import load_audio
 from app.audio.quality import assess_audio_quality
 from app.config import AppConfig, DEFAULT_CONFIG, VERSION
+from app.speech.asr_openai import transcribe_audio_bytes
+from app.speech.language import build_language_output
+from app.speech.translation import translate_to_english
 
 
-def _empty_output() -> dict[str, Any]:
+def _empty_non_speech_output() -> dict[str, Any]:
     return {
         "audio_meta": {
             "duration_sec": 0.0,
@@ -50,8 +53,19 @@ def _empty_output() -> dict[str, Any]:
     }
 
 
-def _error_output(issue: str) -> dict[str, Any]:
-    output = _empty_output()
+def _empty_output() -> dict[str, Any]:
+    output = _empty_non_speech_output()
+    output["language"] = build_language_output()
+    output["transcript"] = {
+        "text": "",
+        "translated_text": "",
+        "asr_confidence": None,
+    }
+    return output
+
+
+def _error_output(issue: str, include_speech: bool = False) -> dict[str, Any]:
+    output = _empty_output() if include_speech else _empty_non_speech_output()
     output["audio_meta"]["quality_issues"] = [issue]
     return output
 
@@ -59,7 +73,7 @@ def _error_output(issue: str) -> dict[str, Any]:
 def analyze_non_speech(audio_path: str | Path, config: AppConfig = DEFAULT_CONFIG) -> dict[str, Any]:
     """Analyze an audio clip and return non-speech distress signals."""
 
-    fallback = _empty_output()
+    fallback = _empty_non_speech_output()
     try:
         loaded = load_audio(audio_path, config=config)
         audio = loaded["audio"]
@@ -87,3 +101,66 @@ def analyze_non_speech(audio_path: str | Path, config: AppConfig = DEFAULT_CONFI
         return _error_output(f"audio_decode_failed:{exc}")
     except Exception as exc:
         return _error_output(f"analysis_failed:{type(exc).__name__}")
+
+
+def analyze_audio(audio_path: str | Path, config: AppConfig = DEFAULT_CONFIG) -> dict[str, Any]:
+    """Analyze audio and extend the non-speech output with transcript fields."""
+
+    try:
+        loaded = load_audio(audio_path, config=config)
+        audio = loaded["audio"]
+        audio_meta = loaded["audio_meta"]
+
+        extra_quality = assess_audio_quality(audio, audio_meta["sample_rate"])
+        merged_issues = list(dict.fromkeys(audio_meta["quality_issues"] + extra_quality["quality_issues"]))
+        audio_meta["quality_ok"] = len(merged_issues) == 0
+        audio_meta["quality_issues"] = merged_issues
+
+        detection = detect_events(audio, audio_meta["sample_rate"], config=config)
+
+        transcript_info = transcribe_audio_bytes(
+            loaded.get("audio_bytes", b""),
+            loaded.get("source_path", Path(audio_path)).name,
+            config=config,
+        )
+        translation_info = translate_to_english(
+            transcript_info["text"],
+            transcript_info["detected_language"],
+            config=config,
+        )
+
+        warning_messages = [
+            f"speech_warning:{warning}"
+            if not str(warning).startswith("speech_warning:")
+            else str(warning)
+            for warning in (transcript_info.get("warning"), translation_info.get("warning"))
+            if warning
+        ]
+        if warning_messages:
+            audio_meta["quality_issues"] = list(dict.fromkeys(audio_meta["quality_issues"] + warning_messages))
+
+        return {
+            "audio_meta": audio_meta,
+            "non_speech_events": detection["non_speech_events"],
+            "acoustic_features": detection["acoustic_features"],
+            "language": build_language_output(
+                transcript_info["detected_language"],
+                transcript_info["language_confidence"],
+            ),
+            "transcript": {
+                "text": transcript_info["text"],
+                "translated_text": translation_info["translated_text"],
+                "asr_confidence": transcript_info["asr_confidence"],
+            },
+            "explanations": detection["explanations"],
+            "model_info": {
+                "event_model": detection["event_model"],
+                "version": VERSION,
+            },
+        }
+    except FileNotFoundError as exc:
+        return _error_output(f"file_not_found:{exc}", include_speech=True)
+    except ValueError as exc:
+        return _error_output(f"audio_decode_failed:{exc}", include_speech=True)
+    except Exception as exc:
+        return _error_output(f"analysis_failed:{type(exc).__name__}", include_speech=True)

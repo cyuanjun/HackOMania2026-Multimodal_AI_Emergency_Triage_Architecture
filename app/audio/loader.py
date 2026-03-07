@@ -99,6 +99,7 @@ def load_audio(audio_path: str | Path, config: AppConfig = DEFAULT_CONFIG) -> di
     path = Path(audio_path)
     if not path.exists():
         raise FileNotFoundError(f"Audio file not found: {path}")
+    audio_bytes = path.read_bytes()
 
     quality_issues: list[str] = []
     if path.suffix.lower() not in config.supported_extensions:
@@ -153,6 +154,8 @@ def load_audio(audio_path: str | Path, config: AppConfig = DEFAULT_CONFIG) -> di
 
     return {
         "audio": mono,
+        "audio_bytes": audio_bytes,
+        "source_path": path,
         "audio_meta": {
             "duration_sec": round(float(duration_sec), 3),
             "sample_rate": int(sample_rate),

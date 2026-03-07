@@ -5,7 +5,7 @@ import wave
 
 import numpy as np
 
-from app.pipeline import analyze_non_speech
+from app.pipeline import analyze_audio
 
 
 def test_pipeline_returns_expected_schema(tmp_path: Path) -> None:
@@ -21,12 +21,14 @@ def test_pipeline_returns_expected_schema(tmp_path: Path) -> None:
             frames.append(struct.pack("<h", value))
         wav_file.writeframes(b"".join(frames))
 
-    result = analyze_non_speech(path)
+    result = analyze_audio(path)
 
     assert set(result.keys()) == {
         "audio_meta",
         "non_speech_events",
         "acoustic_features",
+        "language",
+        "transcript",
         "explanations",
         "model_info",
     }
@@ -58,5 +60,15 @@ def test_pipeline_returns_expected_schema(tmp_path: Path) -> None:
         "peak_count",
         "sudden_impact_score",
         "breathing_variability_score",
+    }
+    assert set(result["language"].keys()) == {
+        "detected_language",
+        "detected_dialect",
+        "confidence",
+    }
+    assert set(result["transcript"].keys()) == {
+        "text",
+        "translated_text",
+        "asr_confidence",
     }
     assert set(result["model_info"].keys()) == {"event_model", "version"}

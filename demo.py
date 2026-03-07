@@ -1,4 +1,4 @@
-"""CLI demo for the non-speech audio intelligence pipeline."""
+"""CLI demo for the audio intelligence pipeline."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import sys
 
-from app.pipeline import analyze_non_speech
+from app.pipeline import analyze_audio
 
 
 def _resolve_audio_path(raw_path: str) -> str:
@@ -23,8 +23,8 @@ def _resolve_audio_path(raw_path: str) -> str:
 
 def main() -> int:
     audio_path = sys.argv[1] if len(sys.argv) > 1 else "sample.wav"
-    result = analyze_non_speech(_resolve_audio_path(audio_path))
-    print(json.dumps(result, indent=2, ensure_ascii=True))
+    result = analyze_audio(_resolve_audio_path(audio_path))
+    print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 
 
