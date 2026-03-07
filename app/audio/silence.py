@@ -117,4 +117,4 @@ def detect_silence_after_impact(
     rms_drop_score = float(np.clip((pre_rms - post_rms) / max(pre_rms, 1e-6), 0.0, 1.0))
 
     confidence = np.clip((0.6 * post_impact_silence_ratio) + (0.4 * rms_drop_score), 0.0, 1.0)
-    return confidence >= 0.45, round(float(confidence), 3)
+    return bool(confidence >= 0.45), round(float(confidence), 3)
