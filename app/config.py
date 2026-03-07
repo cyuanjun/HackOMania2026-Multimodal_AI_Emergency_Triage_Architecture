@@ -13,7 +13,11 @@ class AppConfig:
     target_sample_rate: int = 16_000
     min_duration_sec: float = 0.35
     max_duration_sec: float = 120.0
-    supported_extensions: tuple[str, ...] = (".wav", ".mp3", ".m4a")
+    supported_extensions: tuple[str, ...] = (".wav", ".mp3", ".m4a", ".mp4")
+    enable_loudness_normalization: bool = True
+    loudness_target_rms: float = 0.08
+    loudness_min_gain: float = 0.5
+    loudness_max_gain: float = 2.0
     silence_top_db: float = 35.0
     silence_after_impact_sec: float = 1.0
     peak_threshold: float = 0.72
@@ -132,25 +136,37 @@ class AppConfig:
     speech_urgency_cannot_breathe_weight: float = 0.35
     speech_urgency_voice_strength_weight: float = 0.10
     speech_urgency_shouting_weight: float = 0.05
-    yamnet_bucket_top_k: int = 3
-    crying_detect_threshold: float = 0.5
+    yamnet_bucket_top_k: int = 5
+    crying_detect_threshold: float = 0.2
     shouting_detect_threshold: float = 0.5
-    impact_detect_threshold: float = 0.6
+    impact_detect_threshold: float = 0.5
     silence_after_impact_detect_threshold: float = 0.65
-    fall_sound_detect_threshold: float = 0.65
-    breathing_irregularity_detect_threshold: float = 0.7
+    fall_sound_detect_threshold: float = 0.5
+    breathing_irregularity_detect_threshold: float = 0.4
     silence_after_impact_gate_threshold: float = 0.55
     yamnet_bucket_patterns: dict[str, tuple[str, ...]] = field(
         default_factory=lambda: {
             "crying": (
                 "crying",
+                "cry",
                 "sobbing",
                 "sob",
                 "whimper",
+                "whimpering",
                 "moan",
                 "groan",
                 "wail",
                 "whine",
+                "snivel",
+                "sniffl",
+                "distress",
+                "pain",
+                "infant cry",
+                "baby cry",
+                "baby",
+                "child cry",
+                "yelp",
+                "scream",
                 "sniff",
                 "lament",
                 "bawl",

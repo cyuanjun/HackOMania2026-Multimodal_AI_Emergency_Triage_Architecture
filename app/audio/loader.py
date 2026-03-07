@@ -93,6 +93,26 @@ def _resample_linear(audio: np.ndarray, orig_sr: int, target_sr: int) -> np.ndar
     return np.interp(new_times, old_times, audio).astype(np.float32)
 
 
+def _normalize_loudness(audio: np.ndarray, config: AppConfig) -> np.ndarray:
+    """Normalize waveform loudness to reduce clip-level volume bias."""
+
+    if audio.size == 0 or not config.enable_loudness_normalization:
+        return audio
+
+    rms = float(np.sqrt(np.mean(np.square(audio))))
+    if rms <= 1e-6:
+        return audio
+
+    gain = float(np.clip(config.loudness_target_rms / rms, config.loudness_min_gain, config.loudness_max_gain))
+    normalized = audio * gain
+
+    # Keep waveform in a safe range without heavily altering shape.
+    peak = float(np.max(np.abs(normalized))) if normalized.size else 0.0
+    if peak > 0.99:
+        normalized = normalized / peak * 0.99
+    return normalized.astype(np.float32)
+
+
 def load_audio(audio_path: str | Path, config: AppConfig = DEFAULT_CONFIG) -> dict[str, Any]:
     """Load an audio file and convert it to 16 kHz mono."""
 
@@ -139,6 +159,8 @@ def load_audio(audio_path: str | Path, config: AppConfig = DEFAULT_CONFIG) -> di
         except Exception:
             mono = _resample_linear(mono, orig_sr=sample_rate, target_sr=config.target_sample_rate)
         sample_rate = config.target_sample_rate
+
+    mono = _normalize_loudness(mono, config)
 
     duration_sec = len(mono) / sample_rate if len(mono) else 0.0
     if len(mono) == 0:

@@ -206,9 +206,31 @@ def detect_events(
 
         if yamnet_available:
             # YAMNet is the primary evidence source; heuristics only refine confidence.
-            crying_conf = _clamp((0.58 * yamnet["crying"]) + (0.42 * crying_texture_score))
+            # Texture-aware crying refinement:
+            # keep YAMNet as primary evidence, but boost clips with unstable/low-energy crying texture.
+            crying_base = (0.55 * yamnet["crying"]) + (0.45 * crying_texture_score)
+            texture_bonus = (
+                0.12
+                if (crying_texture_score >= 0.50 and unstable_modulation >= 0.30 and silence_ratio >= 0.25)
+                else 0.0
+            )
+            crying_conf = _clamp(max(crying_base, crying_texture_score * 0.90) + texture_bonus)
             shouting_conf = _clamp((0.7 * yamnet["shouting"]) + (0.3 * sustained_high_energy))
-            impact_conf = _clamp((0.5 * yamnet["impact"]) + (0.5 * impact_score))
+            # Keep YAMNet-first blending, but avoid missing sharp burst-like impacts
+            # when YAMNet under-scores a short impulse.
+            impact_base = max((0.45 * yamnet["impact"]) + (0.50 * impact_score), 0.75 * impact_score)
+            impact_impulse_bonus = (
+                0.02
+                if impact_score >= 0.56 and int(features["peak_count"]) >= 1 and rms_max >= 0.13
+                else 0.0
+            )
+            # Extra boost for low-SNR phone clips where impact is short and relatively quiet.
+            impact_low_snr_bonus = (
+                0.03
+                if impact_score >= 0.44 and silence_ratio >= 0.20 and rms_max >= 0.09
+                else 0.0
+            )
+            impact_conf = _clamp(impact_base + impact_impulse_bonus + impact_low_snr_bonus)
             breathing_conf = _clamp((0.75 * yamnet["breathing"]) + (0.25 * breathing_var))
         else:
             # If YAMNet is unavailable, keep the pipeline alive with conservative heuristic-only scores.
@@ -225,7 +247,15 @@ def detect_events(
             impact_confidence=impact_conf,
             impact_gate_threshold=config.silence_after_impact_gate_threshold,
         )
-        fall_conf = _clamp((0.65 * impact_conf) + (0.25 * silence_conf) + (0.10 * max(crying_conf, shouting_conf)))
+        # Keep fall inference impact-dominant while allowing weak/noisy fall clips.
+        # If impact is already confident, apply a small additive boost for stability.
+        fall_conf = _clamp(
+            (0.58 * impact_conf)
+            + (0.15 * impact_score)
+            + (0.17 * silence_conf)
+            + (0.10 * max(crying_conf, shouting_conf))
+            + (0.04 if impact_conf >= config.impact_detect_threshold else 0.0)
+        )
 
         explanations: list[tuple[float, str]] = []
         if crying_conf >= 0.45:
@@ -287,3 +317,6 @@ def detect_events(
         }
     except Exception:
         return defaults
+        if impact_index is None and impact_score >= 0.35 and audio.size > 0:
+            # Fallback for clips where strict peak picking misses the impact frame.
+            impact_index = int(np.argmax(np.abs(audio)))
