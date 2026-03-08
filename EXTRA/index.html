@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Fall Detection MVP</title>
+
+  <style>
+    :root{
+      --bg: #0b1020;
+      --card: rgba(255,255,255,0.08);
+      --text: rgba(255,255,255,0.92);
+      --muted: rgba(255,255,255,0.68);
+      --border: rgba(255,255,255,0.14);
+
+      --ok: #21c55d;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+
+      --shadow: 0 12px 30px rgba(0,0,0,0.35);
+      --radius: 18px;
+    }
+
+    *{ box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html,body{ height:100%; }
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      color: var(--text);
+      background: radial-gradient(1200px 800px at 50% -10%, rgba(99,102,241,0.35), transparent 60%),
+                  radial-gradient(900px 600px at 10% 10%, rgba(34,197,94,0.16), transparent 55%),
+                  radial-gradient(900px 700px at 90% 20%, rgba(239,68,68,0.14), transparent 55%),
+                  var(--bg);
+      transition: background 220ms ease;
+      padding: 20px;
+      min-height: 100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+
+    body.mode-monitoring{
+      background: radial-gradient(1200px 800px at 50% -10%, rgba(99,102,241,0.35), transparent 60%),
+                  radial-gradient(900px 600px at 10% 10%, rgba(34,197,94,0.18), transparent 55%),
+                  var(--bg);
+    }
+    body.mode-possible{
+      background: radial-gradient(1200px 900px at 50% -10%, rgba(245,158,11,0.42), transparent 60%),
+                  radial-gradient(900px 700px at 15% 15%, rgba(245,158,11,0.22), transparent 55%),
+                  var(--bg);
+    }
+    body.mode-confirmed{
+      background: radial-gradient(1200px 900px at 50% -10%, rgba(239,68,68,0.45), transparent 60%),
+                  radial-gradient(900px 700px at 15% 15%, rgba(239,68,68,0.20), transparent 55%),
+                  var(--bg);
+    }
+
+    .wrap{
+      width: 520px;
+      margin: 0;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap: 12px;
+    }
+
+    header{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      width: 520px;
+    }
+    .title h1{
+      font-size: 20px;
+      margin:0;
+      letter-spacing: 0.2px;
+    }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.06);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.22);
+      font-weight: 700;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    .dot{
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--ok);
+      box-shadow: 0 0 0 6px rgba(33,197,93,0.12);
+    }
+    .pill.warn .dot{ background: var(--warn); box-shadow: 0 0 0 6px rgba(245,158,11,0.12); }
+    .pill.danger .dot{ background: var(--danger); box-shadow: 0 0 0 6px rgba(239,68,68,0.12); }
+
+    .card{
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--card);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+      width: 520px;
+    }
+
+    .main-card{
+      height: 520px;
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between;
+    }
+
+    .hero{ padding: 16px 16px 0; }
+
+    .status-row{
+      display:flex;
+      align-items:flex-start;
+      justify-content:center;
+      gap: 10px;
+      margin-bottom: 10px;
+      text-align:center;
+    }
+    .status-row > div{ width:100%; }
+    .status{
+      font-size: 24px;
+      font-weight: 900;
+      letter-spacing: 0.2px;
+      line-height: 1.1;
+    }
+    .hint{
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 6px;
+      line-height: 1.35;
+      text-align:center;
+    }
+
+    .countdown-wrap{
+      display:flex;
+      justify-content:center;
+      margin: 10px 0 12px;
+    }
+    .ring{
+      width: 220px;
+      height: 220px;
+      border-radius: 999px;
+      display:grid;
+      place-items:center;
+      position:relative;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--border);
+      box-shadow: 0 18px 40px rgba(0,0,0,0.35);
+    }
+    .ring::before{
+      content:"";
+      position:absolute;
+      inset: 10px;
+      border-radius:999px;
+      background: rgba(0,0,0,0.16);
+      border: 1px solid rgba(255,255,255,0.10);
+    }
+    .ring .inner{
+      position:relative;
+      z-index:2;
+      text-align:center;
+      padding: 8px 10px;
+    }
+    .timer{
+      font-variant-numeric: tabular-nums;
+      font-size: 64px;
+      font-weight: 1000;
+      letter-spacing: 0.6px;
+      line-height: 1;
+      margin: 0;
+    }
+
+    .actions{
+      display:flex;
+      gap: 10px;
+      padding: 14px 14px 16px;
+      justify-content:center;
+    }
+    .btn{
+      flex: 1;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.16);
+      background: rgba(255,255,255,0.08);
+      color: var(--text);
+      font-size: 15px;
+      font-weight: 800;
+      cursor:pointer;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:10px;
+      user-select:none;
+    }
+    .btn:active{ transform: translateY(1px); }
+    .btn.primary{ background: rgba(99,102,241,0.28); border-color: rgba(99,102,241,0.45); }
+    .btn.danger{ background: rgba(239,68,68,0.25); border-color: rgba(239,68,68,0.45); }
+    .btn.ok{ background: rgba(33,197,93,0.20); border-color: rgba(33,197,93,0.38); }
+    .btn:disabled{ opacity: 0.55; cursor:not-allowed; }
+
+    .grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      width: 520px;
+    }
+    .mini{
+      padding: 14px 14px 12px;
+      width: 254px;
+      height: 150px;
+    }
+    .mini h3{
+      margin: 0 0 10px;
+      font-size: 13px;
+      color: var(--muted);
+      letter-spacing: 0.2px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .kv{
+      display:grid;
+      grid-template-columns: 56px 1fr;
+      gap: 8px 10px;
+      font-variant-numeric: tabular-nums;
+      font-size: 14px;
+    }
+    .k{ color: var(--muted); }
+    .v{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+
+    @media (max-width: 560px){
+      body{
+        padding: calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));
+        align-items:flex-start;
+        justify-content:flex-start;
+      }
+      .wrap, header, .card, .grid{ width: 100%; }
+      .main-card{ height: auto; }
+      .grid{ grid-template-columns: 1fr; }
+      .mini{ width: 100%; height: auto; }
+      .ring{ width: 200px; height: 200px; }
+      .timer{ font-size: 56px; }
+    }
+
+  </style>
+</head>
+
+<body class="mode-monitoring">
+  <div class="wrap">
+    <header>
+      <div class="title">
+        <h1>Fall Detection MVP</h1>
+      </div>
+      <div class="pill ok" id="modePill" aria-label="mode">
+        <span class="dot"></span>
+        <span id="pillText">IDLE</span>
+      </div>
+    </header>
+
+    <section class="card main-card">
+      <div class="hero">
+        <div class="status-row">
+          <div>
+            <div class="status" id="status">Waiting</div>
+            <div class="hint" id="hint">Tap <b>Start</b> to begin.</div>
+          </div>
+        </div>
+
+        <div class="countdown-wrap">
+          <div class="ring" id="ring">
+            <div class="inner">
+              <div class="timer" id="countdown">-</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn primary" id="startBtn" onclick="startSensors()">Start</button>
+        <button class="btn ok" id="resetBtn" onclick="resetAll()" disabled>Reset</button>
+        <button class="btn" id="stopBtn" onclick="stopSensors()" disabled>Stop</button>
+      </div>
+    </section>
+
+    <div class="grid">
+      <section class="card mini">
+        <h3>Acceleration (m/s^2)</h3>
+        <div class="kv">
+          <div class="k">X</div><div class="v" id="ax">0.00</div>
+          <div class="k">Y</div><div class="v" id="ay">0.00</div>
+          <div class="k">Z</div><div class="v" id="az">0.00</div>
+          <div class="k">|a|</div><div class="v" id="amag">0.00</div>
+        </div>
+      </section>
+
+      <section class="card mini">
+        <h3>Debug</h3>
+        <div class="kv">
+          <div class="k">State</div><div class="v" id="dbgState">-</div>
+          <div class="k">Thr</div><div class="v" id="thrText">30.0</div>
+          <div class="k">Window</div><div class="v" id="winText">30s</div>
+          <div class="k">Note</div><div class="v" id="debug">-</div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+<script>
+  const IMPACT_THRESHOLD = 30.0;
+  const CONFIRM_WINDOW_S = 15;
+  const COOLDOWN_MS = 1500;
+
+  const STATE = {
+    IDLE: "IDLE",
+    MONITORING: "MONITORING",
+    POSSIBLE: "POSSIBLE_FALL",
+    CONFIRMED: "FALL_DETECTED"
+  };
+
+  let state = STATE.IDLE;
+  let listening = false;
+
+  let countdownTimer = null;
+  let countdownLeft = CONFIRM_WINDOW_S;
+  let lastTrigger = 0;
+
+  const el = (id) => document.getElementById(id);
+
+  function setBodyMode(mode){
+    document.body.classList.remove("mode-monitoring","mode-possible","mode-confirmed");
+    document.body.classList.add(mode);
+  }
+
+  function setPill(kind, text){
+    const pill = el("modePill");
+    pill.classList.remove("ok","warn","danger");
+    pill.classList.add(kind);
+    el("pillText").textContent = text;
+  }
+
+  function setStatus(text){ el("status").textContent = text; }
+  function setHint(text){ el("hint").innerHTML = text; }
+  function setCountdownDisplay(val){ el("countdown").textContent = val; }
+
+  function setDebug(text){
+    el("debug").textContent = text;
+    el("dbgState").textContent = state;
+  }
+
+  function stopCountdown(){
+    if (countdownTimer){
+      clearInterval(countdownTimer);
+      countdownTimer = null;
+    }
+  }
+
+  function startCountdown(){
+    stopCountdown();
+    countdownLeft = CONFIRM_WINDOW_S;
+    setCountdownDisplay(String(countdownLeft));
+    countdownTimer = setInterval(() => {
+      countdownLeft -= 1;
+      setCountdownDisplay(String(Math.max(0, countdownLeft)));
+      if (countdownLeft <= 0){
+        stopCountdown();
+        confirmFall();
+      }
+    }, 1000);
+  }
+
+  function startPossibleFall(){
+    state = STATE.POSSIBLE;
+
+    setBodyMode("mode-possible");
+    setPill("warn", "POSSIBLE");
+    setStatus("Possible Fall");
+    setHint("Tap <b>Reset</b> to cancel.");
+    el("resetBtn").disabled = false;
+
+    startCountdown();
+    setDebug("Impact spike -> possible fall.");
+
+    if (navigator.vibrate) navigator.vibrate([120, 80, 120]);
+  }
+
+  function confirmFall(){
+    state = STATE.CONFIRMED;
+
+    setBodyMode("mode-confirmed");
+    setPill("danger", "CONFIRMED");
+    setStatus("Fall Detected");
+    setHint("Tap <b>Reset</b> to return to monitoring.");
+    el("resetBtn").disabled = false;
+
+    setCountdownDisplay("0");
+    setDebug("Timer ended -> fall confirmed.");
+
+    if (navigator.vibrate) navigator.vibrate([200, 120, 200, 120, 200]);
+  }
+
+  function resetAll(){
+    stopCountdown();
+    state = STATE.MONITORING;
+
+    setBodyMode("mode-monitoring");
+    setPill("ok", "RUNNING");
+    setStatus("Monitoring");
+    setHint("Monitoring impacts.");
+    el("resetBtn").disabled = true;
+
+    setCountdownDisplay("-");
+    setDebug("Reset -> monitoring.");
+
+    lastTrigger = Date.now();
+  }
+
+  async function startSensors(){
+    if (typeof DeviceMotionEvent !== "undefined" &&
+        typeof DeviceMotionEvent.requestPermission === "function"){
+      const perm = await DeviceMotionEvent.requestPermission();
+      if (perm !== "granted"){
+        alert("Motion permission denied.\nOn iPhone: Settings -> Safari -> Motion & Orientation Access -> ON.");
+        return;
+      }
+    }
+
+    if (!listening){
+      window.addEventListener("devicemotion", handleMotion, { passive: true });
+      listening = true;
+    }
+
+    el("startBtn").disabled = true;
+    el("stopBtn").disabled = false;
+    el("resetBtn").disabled = true;
+
+    el("thrText").textContent = IMPACT_THRESHOLD.toFixed(1);
+    el("winText").textContent = `${CONFIRM_WINDOW_S}s`;
+
+    state = STATE.MONITORING;
+    setBodyMode("mode-monitoring");
+    setPill("ok", "RUNNING");
+    setStatus("Monitoring");
+    setHint("Monitoring impacts.");
+    setCountdownDisplay("-");
+    setDebug("Sensors running.");
+  }
+
+  function stopSensors(){
+    if (listening){
+      window.removeEventListener("devicemotion", handleMotion);
+      listening = false;
+    }
+    stopCountdown();
+
+    el("startBtn").disabled = false;
+    el("stopBtn").disabled = true;
+    el("resetBtn").disabled = true;
+
+    state = STATE.IDLE;
+    setBodyMode("mode-monitoring");
+    setPill("ok", "IDLE");
+    setStatus("Stopped");
+    setHint("Tap <b>Start</b> to begin.");
+    setCountdownDisplay("-");
+    setDebug("Stopped.");
+  }
+
+  function handleMotion(event){
+    const acc = event.accelerationIncludingGravity;
+    if (!acc) return;
+
+    const ax = acc.x ?? 0;
+    const ay = acc.y ?? 0;
+    const az = acc.z ?? 0;
+
+    const mag = Math.sqrt(ax*ax + ay*ay + az*az);
+
+    el("ax").textContent = ax.toFixed(2);
+    el("ay").textContent = ay.toFixed(2);
+    el("az").textContent = az.toFixed(2);
+    el("amag").textContent = mag.toFixed(2);
+
+    if (state === STATE.CONFIRMED){
+      setDebug(`CONFIRMED • |a|=${mag.toFixed(2)} (press Reset)`);
+      return;
+    }
+
+    if (state === STATE.POSSIBLE){
+      setDebug(`POSSIBLE • |a|=${mag.toFixed(2)}`);
+      return;
+    }
+
+    const now = Date.now();
+    const cooledDown = (now - lastTrigger) > COOLDOWN_MS;
+
+    setDebug(`MONITORING • |a|=${mag.toFixed(2)} (thr ${IMPACT_THRESHOLD.toFixed(1)})`);
+
+    if (cooledDown && mag >= IMPACT_THRESHOLD){
+      lastTrigger = now;
+      startPossibleFall();
+    }
+  }
+</script>
+</body>
+</html>
