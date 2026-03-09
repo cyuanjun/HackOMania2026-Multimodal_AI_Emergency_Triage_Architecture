@@ -1,6 +1,6 @@
 # HackOMania 2026 - PAB Triage MVP
 
-![Dashboard Preview](./docs/images/dashboard.png)
+![Dashboard Preview](./readme_images/dashboard.png)
 
 AI-assisted triage dashboard for **Personal Alert Button (PAB)** alerts, built for **HackOMania 2026**.
 
