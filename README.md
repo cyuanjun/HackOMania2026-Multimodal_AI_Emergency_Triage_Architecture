@@ -1,7 +1,5 @@
 # HackOMania 2026 - PAB Triage MVP
 
-# HackOMania 2026 — Looking for PR
-
 AI-assisted triage dashboard for **Personal Alert Button (PAB)** alerts, built for **HackOMania 2026**.
 
 This project is a monorepo MVP that helps operators monitor incoming alert cases, review AI-assisted triage outputs, and make faster response decisions using resident context, call history, and audio-derived signals.
