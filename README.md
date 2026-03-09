@@ -44,7 +44,7 @@ The current implementation is designed as a **modular MVP**, with clean separati
 ├── frontend/    # Next.js + TypeScript + Tailwind dashboard
 ├── docs/        # Architecture notes
 └── EXTRA/       # Extra materials / supporting files
-'''
+```
 
 ## Structure
 
