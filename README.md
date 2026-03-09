@@ -15,11 +15,11 @@ This project is a monorepo MVP that helps operators monitor incoming alert cases
 - LinkedIn: [Chia Yuan Jun](https://www.linkedin.com/in/chia-yuan-jun/)
 - 
 **Lee Jinseo (Jason)**
-- GitHub:  
+- GitHub:   [JSL]
 - LinkedIn: [Jinseo Lee](https://www.linkedin.com/in/jinseo-lee-58b255341/)
 
 **Su Yi Maung (Monica)**
-- GitHub:
+- GitHub:   [@Monica-Cheng](https://github.com/Monica-Cheng)
 - LinkedIn: [Monica Cheng](https://www.linkedin.com/in/monica-cheng-873512292/)
 
 ---
